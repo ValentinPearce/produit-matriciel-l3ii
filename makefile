@@ -18,4 +18,4 @@ clean:
 	@rm -rf *.o
 
 mrproper: clean
-	@rm -rf $(EXEC)
+	@$(RM) $(EXEC) $(OBJ)
