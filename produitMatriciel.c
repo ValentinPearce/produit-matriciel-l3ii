@@ -13,6 +13,7 @@
 #include <sys/types.h>
 
 #include <unistd.h>
+
 /****** TYPES ******/
 enum _State {
 	STATE_WAIT,
@@ -92,53 +93,55 @@ int main(int argc, const char *argv[])
 	mprotect(mmappedFile, (size_t) pageSize, PROT_READ);
 	char * mmappedFileCursor = mmappedFile; // Curseur servant à la lecture depuis un point avancé du fichier
 	double dummy; // Variable servant à récupérer des valeurs non utilisées après récupération.
-	int rows, cols, maxRows, maxCols;	
-	maxRows = 0;
-	maxCols = 0;
 	int displacement;
-	multData.quantityScanned = sscanf(mmappedFile, "%u%u%u%u%n", &multData.rowsM1, &multData.colsM1, &multData.rowsM2, &multData.colsM2, &displacement);
-	mmappedFileCursor += displacement;	
 	unsigned int rowCursor = 0;
 	unsigned int colCursor = 0;
+	/****** Récupération du nombre d'itérations ******/
 
 	/****** Initialisation des maximums ******/
+	printf("Fetching maximums\n");
 	multData.maxRows = 0;
 	multData.maxCols = 0;
-	
-	do {
+	for (iter = 0; iter < multData.nbIterations; iter++) {
+		sscanf(mmappedFile, "%u%u%u%u%n", &multData.rowsM1, &multData.colsM1, &multData.rowsM2, &multData.colsM2, &displacement);
+		mmappedFileCursor += displacement;	
+
+		printf("Entering loop\n");
 		if(multData.rowsM1 > multData.maxRows) { multData.maxRows = multData.rowsM1;}
 		if(multData.colsM1 > multData.maxCols) { multData.maxCols = multData.colsM1;}
 		if(multData.rowsM2 > multData.maxRows) { multData.maxRows = multData.rowsM2;}
 		if(multData.colsM2 > multData.maxCols) { multData.maxCols = multData.colsM2;}
+		printf("Ignoring first matrix");
 		for (rowCursor = 0; rowCursor < multData.rowsM1; rowCursor++) {
 			for (colCursor = 0; colCursor < multData.colsM1; colCursor++) {
 				sscanf(mmappedFileCursor, "%lf%n", &dummy, &displacement);
 				mmappedFileCursor += displacement;	
 			}
 		}
+		printf("Ignoring second matrix");
 		for (rowCursor = 0; rowCursor < multData.rowsM2; rowCursor++) {
 			for (colCursor = 0; colCursor < multData.colsM2; colCursor++) {
 				sscanf(mmappedFileCursor, "%lf%n", &dummy, &displacement);
 				mmappedFileCursor += displacement;	
 			}
 		}
-		multData.quantityScanned = sscanf(mmappedFile, "%u%u%u%u%n", &multData.rowsM1, &multData.colsM1, &multData.rowsM2, &multData.colsM2, &displacement);
-		mmappedFileCursor += displacement;	
 	}
-	while (multData.quantityScanned != EOF); 
+
 	mmappedFileCursor = mmappedFile; // Réinitialisation du pointeur au début du fichier
+
 	/* Initialisations (multiplyData, tableaux) */
 
+	printf("Creating arrays\n");
 	multData.state = STATE_WAIT;
-	multData.m1 = malloc(maxRows*sizeof(double *));
-	multData.m2 = malloc(maxRows*sizeof(double *));
-	multData.m3 = malloc(maxRows*sizeof(double *));
-	multData.pendingMult = malloc(maxRows*sizeof(int *));
-	for (rowCursor = 0; rowCursor < maxRows; rowCursor++) {
-		multData.m1[rowCursor] = malloc(maxCols*sizeof(double));
-		multData.m2[rowCursor] = malloc(maxCols*sizeof(double));
-		multData.m3[rowCursor] = malloc(maxCols*sizeof(double));
-		multData.pendingMult[rowCursor] = malloc(maxCols*sizeof(int));
+	multData.m1 = malloc(multData.maxRows*sizeof(double *));
+	multData.m2 = malloc(multData.maxRows*sizeof(double *));
+	multData.m3 = malloc(multData.maxRows*sizeof(double *));
+	multData.pendingMult = malloc(multData.maxRows*sizeof(int *));
+	for (rowCursor = 0; rowCursor < multData.maxRows; rowCursor++) {
+		multData.m1[rowCursor] = malloc(multData.maxCols*sizeof(double));
+		multData.m2[rowCursor] = malloc(multData.maxCols*sizeof(double));
+		multData.m3[rowCursor] = malloc(multData.maxCols*sizeof(double));
+		multData.pendingMult[rowCursor] = malloc(multData.maxCols*sizeof(int));
 	}
 
 
