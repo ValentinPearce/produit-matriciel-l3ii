@@ -17,14 +17,14 @@
 enum _State {
 	STATE_WAIT,	// Attente pendant l'initialisation
 	STATE_MULT,	// Multiplication
-	STATE_PRINT,	// Affichage des résultats et écriture dans le fichier result
+	STATE_PRINT,	// Affichage des resultats et ecriture dans le fichier result
 	STATE_DONE	// Fin de l'execution 
 };
 
 typedef enum _State State;
 
-struct _threadData { // Données spécifiques à chaque thread
-	unsigned int col, row, cpu; // Coordonnées du résulat et cpu sur lequel le thread doit s'executer
+struct _threadData { // Donnees specifiques a chaque thread
+	unsigned int col, row, cpu; // Coordonnees du resulat et cpu sur lequel le thread doit s'executer
 };
 typedef struct _threadData threadData;
 
@@ -35,15 +35,15 @@ struct _multiplyData {
 	size_t nbIterations;
 	double ** m1;		// Matrice 1 du produit
 	double ** m2;		// Matrice 2 du produit
-	double ** m3;		// Matrice de résultat
-	int ** pendingMult;	// Tableau permettant de savoir quel calcul est à effetuer
+	double ** m3;		// Matrice de resultat
+	int ** pendingMult;	// Tableau permettant de savoir quel calcul est a effetuer
 	unsigned int rowsM1, rowsM2, colsM1, colsM2, maxRows, maxCols;	
 	int quantityScanned;
 };
 
 typedef struct _multiplyData multiplyData;
 
-void initPendingMult(multiplyData * mD) // Initialisation du tableau des multiplications à effectuer
+void initPendingMult(multiplyData * mD) // Initialisation du tableau des multiplications a effectuer
 {
 	size_t i,j;
 	for(i=0;i<mD->maxRows;i++)
@@ -55,7 +55,20 @@ void initPendingMult(multiplyData * mD) // Initialisation du tableau des multipl
 	}
 }
 
-int nbPendingMult(multiplyData * mD) // Nombres de multiplications restantes à effetuer
+void zeroMatrixes(multiplyData * mD) // Mise a zero des matrices 
+{
+	size_t i,j;
+	for(i=0;i<mD->maxRows;i++)
+	{
+		for (j = 0; j < mD->maxCols; j++) {
+			mD->m1[i][j] = 0;
+			mD->m2[i][j] = 0;
+			mD->m2[i][j] = 0;
+		}
+	}
+}
+
+int nbPendingMult(multiplyData * mD) // Nombres de multiplications restantes a effetuer
 {
 	size_t i,j;
 	int nb = 0;
@@ -90,14 +103,14 @@ void * multiply(void * data){
 	for(iter=0;iter<multData.nbIterations;iter++) 
 	{
 
-		/* Attendre l'autorisation de multiplication pour une nouvelle itération*/
+		/* Attendre l'autorisation de multiplication pour une nouvelle iteration*/
 		pthread_mutex_lock(&multData.mutex);
 		while(multData.state != STATE_MULT || multData.pendingMult[thD.row][thD.col] == 0){
 			pthread_cond_wait(&multData.cond, &multData.mutex);
 			if (multData.state == STATE_DONE) {
 				pthread_mutex_unlock(&multData.mutex);
 				fprintf(stderr,"Quit mult(%d,%d)\n",thD.col, thD.row);
-				return NULL; // Si l'execution est términée mais que nb iteration n'est pas atteint, fin du thread
+				return NULL; // Si l'execution est terminee mais que nb iteration n'est pas atteint, fin du thread
 			}
 		}
 		pthread_mutex_unlock(&multData.mutex);
@@ -112,7 +125,7 @@ void * multiply(void * data){
 			}
 		}
 
-		fprintf(stderr,"<-- mult(%d,%d) : %.3g\n",           /* Affichage du résultat à la position*/
+		fprintf(stderr,"<-- mult(%d,%d) : %.3g\n",           /* Affichage du resultat a la position*/
 				thD.row,thD.col,multData.m3[thD.row][thD.col]);
 		/*=>Marquer la fin de la multiplication en cours... */
 		multData.pendingMult[thD.row][thD.col] = 0;
@@ -159,7 +172,7 @@ int main(int argc, const char *argv[])
 	}
 	printf("Main thread CPU : %d\n",sched_getcpu());
 
-	/* Lecture du fichier pour déterminer le nombre de threads à créer */
+	/* Lecture du fichier pour determiner le nombre de threads a creer */
 	int fd = open(argv[1], O_RDONLY);
 	if (fd == -1) {
 		perror("open");
@@ -168,12 +181,12 @@ int main(int argc, const char *argv[])
 	lstat(argv[1], &statbuf);
 	mmappedFile = mmap(NULL, statbuf.st_size, PROT_READ, MAP_SHARED, fd, 0);
 	mprotect(mmappedFile, (size_t) pageSize, PROT_READ);
-	char * mmappedFileCursor = mmappedFile; // Curseur servant à la lecture depuis un point avancé du fichier
-	double dummy; // Variable servant à récupérer des valeurs non utilisées après récupération.
+	char * mmappedFileCursor = mmappedFile; // Curseur servant a la lecture depuis un point avance du fichier
+	double dummy; // Variable servant a recuperer des valeurs non utilisees après recuperation.
 	int displacement;
 	unsigned int rowCursor = 0;
 	unsigned int colCursor = 0;
-	/****** Récupération du nombre d'itérations ******/
+	/****** Recuperation du nombre d'iterations ******/
 
 	sscanf(mmappedFile, "%u%n", &multData.nbIterations, &displacement);
 	mmappedFileCursor += displacement;	
@@ -186,12 +199,12 @@ int main(int argc, const char *argv[])
 		sscanf(mmappedFileCursor, "%u%u%u%u%n", &multData.rowsM1, &multData.colsM1, &multData.rowsM2, &multData.colsM2, &displacement);
 		mmappedFileCursor += displacement;	
 
-		// Mise à jour des maximums
+		// Mise a jour des maximums
 		if(multData.rowsM1 > multData.maxRows) { multData.maxRows = multData.rowsM1;}
 		if(multData.colsM1 > multData.maxCols) { multData.maxCols = multData.colsM1;}
 		if(multData.rowsM2 > multData.maxRows) { multData.maxRows = multData.rowsM2;}
 		if(multData.colsM2 > multData.maxCols) { multData.maxCols = multData.colsM2;}
-		// On ignore les données des matrices
+		// On ignore les donnees des matrices
 		for (rowCursor = 0; rowCursor < multData.rowsM1; rowCursor++) {
 			for (colCursor = 0; colCursor < multData.colsM1; colCursor++) {
 				sscanf(mmappedFileCursor, "%lf%n", &dummy, &displacement);
@@ -206,7 +219,7 @@ int main(int argc, const char *argv[])
 		}
 	}
 
-	mmappedFileCursor = mmappedFile; // Réinitialisation du pointeur au début du fichier
+	mmappedFileCursor = mmappedFile; // Reinitialisation du pointeur au debut du fichier
 
 	/* Initialisations (multiplyData, tableaux) */
 
@@ -244,11 +257,13 @@ int main(int argc, const char *argv[])
 			pthread_create(&multTh[(rowCursor*multData.maxCols+colCursor)], NULL, multiply, &thData[(rowCursor*multData.maxCols+colCursor)]);
 		}
 	}
-	sscanf(mmappedFile, "%u%n", &multData.nbIterations, &displacement);
+	sscanf(mmappedFileCursor, "%u%n", &multData.nbIterations, &displacement);
 	mmappedFileCursor += displacement;	
 	fprintf(results, "%d\n", multData.nbIterations);
 	// On effectue le calcul
 	for (iter = 0; iter < multData.nbIterations; iter++) {
+		// Mise a zero des matrices de calcul
+		zeroMatrixes(&multData);
 		// Lecture d'une paire de fichiers
 		sscanf(mmappedFileCursor, "%u%u%u%u%n", &multData.rowsM1, &multData.colsM1, &multData.rowsM2, &multData.colsM2, &displacement);
 		mmappedFileCursor += displacement;	
@@ -289,7 +304,7 @@ int main(int argc, const char *argv[])
 		}
 		pthread_mutex_unlock(&multData.mutex);
 	}
-	/* Avertissement aux threads non terminés de la fin de l'execution */
+	/* Avertissement aux threads non termines de la fin de l'execution */
 	multData.state = STATE_DONE;
 	pthread_cond_broadcast(&multData.cond);
 
@@ -299,7 +314,7 @@ int main(int argc, const char *argv[])
 	printf("Closing threads\n");
 	for (rowCursor = 0; rowCursor < multData.maxRows*multData.maxCols; rowCursor++) {
 		pthread_join(multTh[rowCursor], NULL);
-		printf("Closed thread n°%d\n", rowCursor);
+		printf("Closed thread n.%d\n", rowCursor);
 	}
 	printf("Threads closed\n");
 
@@ -307,7 +322,7 @@ int main(int argc, const char *argv[])
 	pthread_cond_destroy(&multData.cond);
 	/*=> detruire multData.mutex ... */
 	pthread_mutex_destroy(&multData.mutex);
-	/*** Libération de la mémoire ***/
+	/*** Liberation de la memoire ***/
 	munmap(mmappedFile, statbuf.st_size);
 	for (rowCursor = 0; rowCursor < multData.maxRows; rowCursor++) {
 		free(multData.m1[rowCursor]);
