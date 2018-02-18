@@ -23,6 +23,11 @@ enum _State {
 
 typedef enum _State State;
 
+struct _threadData { // Données spécifiques à chaque thread
+	unsigned int col, row, cpu;
+};
+typedef struct _threadData threadData;
+
 struct _multiplyData {
 	State state;
 	pthread_cond_t cond;
@@ -38,26 +43,104 @@ struct _multiplyData {
 
 typedef struct _multiplyData multiplyData;
 
+void initPendingMult(multiplyData * mD)
+{
+	size_t i,j;
+	for(i=0;i<mD->maxRows;i++)
+	{
+		for (j = 0; j < mD->maxCols; j++) {
+			if( i < mD->rowsM1 && j < mD->colsM2 ) { mD->pendingMult[i][j] = 1; printf("pending(%d,%d) = 1", i, j);}
+			else { mD->pendingMult[i][j] = 0 ;}
+		}
+	}
+}
+
+int nbPendingMult(multiplyData * mD)
+{
+	size_t i,j;
+	int nb = 0;
+	for(i=0;i<mD->rowsM1;i++)
+	{
+		for (j = 0; j < mD->colsM2; j++) {
+			nb += mD->pendingMult[i][j];
+		}
+	}
+	printf("Pending mults : %d\n", nb);
+	return nb;
+}
+
 /****** GLOBAL DATA ******/
 int processors;
 multiplyData multData;
 
 /****** FUNCTIONS ******/
-void multiply(void * data){
-	size_t index;
-	size_t iter;
+void wasteTime(unsigned long ms)
+{
+	unsigned long t,t0;
+	struct timeval tv;
+	gettimeofday(&tv,(struct timezone *)0);
+	t0=tv.tv_sec*1000LU+tv.tv_usec/1000LU;
+	do
+	{
+		gettimeofday(&tv,(struct timezone *)0);
+		t=tv.tv_sec*1000LU+tv.tv_usec/1000LU;
+	} while(t-t0<ms);
+}
 
-	index = *(int *)data;
+void * multiply(void * data){
+	threadData thD;
+	size_t iter;
+	unsigned int i, j;
+	thD = *(threadData *)data;
 
 	cpu_set_t multiplySet;
 	CPU_ZERO(&multiplySet);
-	CPU_SET(index%processors, &multiplySet);
+	CPU_SET(thD.cpu, &multiplySet);
+	if(sched_setaffinity(0, sizeof(cpu_set_t), &multiplySet) == -1){
+		perror("sched_setaffinity");
+	}
+	fprintf(stderr,"Begin multiply(%d,%d) on CPU %d\n",thD.row, thD.col,sched_getcpu());
+	for(iter=0;iter<multData.nbIterations;iter++)  /* n'ont pas eu lieu              */
+	{
+		/*=>Attendre l'autorisation de multiplication POUR UNE NOUVELLE ITERATION...*/
+		pthread_mutex_lock(&multData.mutex);
+		while(multData.state != STATE_MULT || multData.pendingMult[thD.row][thD.col] == 0){
+			pthread_cond_wait(&multData.cond, &multData.mutex);
+		}
+		pthread_mutex_unlock(&multData.mutex);
+		fprintf(stderr,"--> mult(%d,%d)\n",thD.row, thD.col); /* La multiplication peut commencer */
 
+		multData.m3[thD.row][thD.col] = multData.m1[thD.row][0]*multData.m2[0][thD.col];
+
+		/*=>Effectuer la multiplication a l'index du thread courant... */
+		for (i = 1; i < multData.rowsM1; i++) {
+			for (j = 1; j < multData.colsM2; j++) {
+				multData.m3[thD.row][thD.col] += multData.m1[thD.row][j]*multData.m2[i][thD.col];
+			}
+		}
+		wasteTime(200+(rand()%200)); /* Perte du temps avec wasteTime() */
+
+		fprintf(stderr,"<-- mult(%d,%d) : %.3g\n",           /* Affichage du */
+				thD.row,thD.col,multData.m3[thD.row][thD.col]);/* calcul sur   */
+		/* l'index      */
+		/*=>Marquer la fin de la multiplication en cours... */
+		multData.pendingMult[thD.row][thD.col] = 0;
+		/*=>Si c'est la derniere... */
+		if(nbPendingMult(&multData) == 0)
+		{
+			/*=>Autoriser le demarrage de l'addition... */
+			multData.state = STATE_PRINT;
+			pthread_cond_broadcast(&multData.cond);
+		}
+	}
+	fprintf(stderr,"Quit mult(%d,%d)\n",thD.col, thD.row);
+	return NULL;
 }
 
 int main(int argc, const char *argv[])
 {
-	size_t i, iter;
+	size_t iter;
+	threadData *thData;
 	pthread_t *multTh;
 	char * mmappedFile;
 	struct stat statbuf;
@@ -102,8 +185,11 @@ int main(int argc, const char *argv[])
 	printf("Fetching maximums\n");
 	multData.maxRows = 0;
 	multData.maxCols = 0;
+
+	sscanf(mmappedFile, "%u%n", &multData.nbIterations, &displacement);
+	mmappedFileCursor += displacement;	
 	for (iter = 0; iter < multData.nbIterations; iter++) {
-		sscanf(mmappedFile, "%u%u%u%u%n", &multData.rowsM1, &multData.colsM1, &multData.rowsM2, &multData.colsM2, &displacement);
+		sscanf(mmappedFileCursor, "%u%u%u%u%n", &multData.rowsM1, &multData.colsM1, &multData.rowsM2, &multData.colsM2, &displacement);
 		mmappedFileCursor += displacement;	
 
 		printf("Entering loop\n");
@@ -111,14 +197,14 @@ int main(int argc, const char *argv[])
 		if(multData.colsM1 > multData.maxCols) { multData.maxCols = multData.colsM1;}
 		if(multData.rowsM2 > multData.maxRows) { multData.maxRows = multData.rowsM2;}
 		if(multData.colsM2 > multData.maxCols) { multData.maxCols = multData.colsM2;}
-		printf("Ignoring first matrix");
+		printf("Ignoring first matrix\n");
 		for (rowCursor = 0; rowCursor < multData.rowsM1; rowCursor++) {
 			for (colCursor = 0; colCursor < multData.colsM1; colCursor++) {
 				sscanf(mmappedFileCursor, "%lf%n", &dummy, &displacement);
 				mmappedFileCursor += displacement;	
 			}
 		}
-		printf("Ignoring second matrix");
+		printf("Ignoring second matrix\n");
 		for (rowCursor = 0; rowCursor < multData.rowsM2; rowCursor++) {
 			for (colCursor = 0; colCursor < multData.colsM2; colCursor++) {
 				sscanf(mmappedFileCursor, "%lf%n", &dummy, &displacement);
@@ -131,8 +217,9 @@ int main(int argc, const char *argv[])
 
 	/* Initialisations (multiplyData, tableaux) */
 
-	printf("Creating arrays\n");
 	multData.state = STATE_WAIT;
+
+	printf("Creating arrays\n");
 	multData.m1 = malloc(multData.maxRows*sizeof(double *));
 	multData.m2 = malloc(multData.maxRows*sizeof(double *));
 	multData.m3 = malloc(multData.maxRows*sizeof(double *));
@@ -144,12 +231,96 @@ int main(int argc, const char *argv[])
 		multData.pendingMult[rowCursor] = malloc(multData.maxCols*sizeof(int));
 	}
 
+	/*=>initialiser multData.mutex ... */
+	if(pthread_mutex_init(&multData.mutex, NULL) != 0){
+		perror("pthread_mutex_init()\n");
+	}
+	/*=>initialiser multData.cond ...  */
+	if (pthread_cond_init(&multData.cond, NULL)) {
+		perror("pthread_cond_init()\n");
+	}
+
+	/* Initialisation des threads */
+	printf("Initialising threads\n");
+	multTh = malloc(multData.maxCols*multData.maxRows*sizeof(pthread_t));
+	thData = malloc(multData.maxCols*multData.maxRows*sizeof(threadData));
+	printf("maxRows : %d; maxCols : %d;\n",	multData.maxRows,multData.maxCols);
+	for (rowCursor = 0; rowCursor < multData.maxRows; rowCursor++) {
+		for (colCursor = 0; colCursor < multData.maxCols; colCursor++) {
+			thData[rowCursor*multData.maxCols+colCursor].row = rowCursor;
+			thData[rowCursor*multData.maxCols+colCursor].col = colCursor;
+			thData[rowCursor*multData.maxCols+colCursor].cpu = (rowCursor*multData.maxCols+colCursor)%processors;
+			printf("Creating threads\n");
+			pthread_create(&multTh[(rowCursor+1)*(colCursor+1)], NULL, multiply, &thData[(rowCursor*multData.maxCols+colCursor)]);
+		}
+	}
+	sscanf(mmappedFile, "%u%n", &multData.nbIterations, &displacement);
+	mmappedFileCursor += displacement;	
+	for (iter = 0; iter < multData.nbIterations; iter++) {
+		sscanf(mmappedFileCursor, "%u%u%u%u%n", &multData.rowsM1, &multData.colsM1, &multData.rowsM2, &multData.colsM2, &displacement);
+		mmappedFileCursor += displacement;	
+
+		printf("Setting first matrix\n");
+		for (rowCursor = 0; rowCursor < multData.rowsM1; rowCursor++) {
+			for (colCursor = 0; colCursor < multData.colsM1; colCursor++) {
+				sscanf(mmappedFileCursor, "%lf%n", &multData.m1[rowCursor][colCursor], &displacement);
+				mmappedFileCursor += displacement;	
+			}
+		}
+		printf("Setting second matrixi\n");
+		for (rowCursor = 0; rowCursor < multData.rowsM2; rowCursor++) {
+			for (colCursor = 0; colCursor < multData.colsM2; colCursor++) {
+				sscanf(mmappedFileCursor, "%lf%n", &multData.m2[rowCursor][colCursor], &displacement);
+				mmappedFileCursor += displacement;	
+			}
+		}
+		/*=>Autoriser le demarrage des multiplications pour une nouvelle iteration..*/
+		initPendingMult(&multData);
+		multData.state = STATE_MULT;
+		pthread_cond_broadcast(&multData.cond);
+
+		/*=>Attendre l'autorisation d'affichage...*/
+		pthread_mutex_lock(&multData.mutex);
+		while(multData.state != STATE_PRINT){
+			pthread_cond_wait(&multData.cond, &multData.mutex);
+		}
+
+		/*=>Afficher le resultat de l'iteration courante...*/
+		printf("ITERATION %d, RESULT : \n", iter);
+		for (rowCursor = 0; rowCursor < multData.rowsM1; rowCursor++) {
+			for (colCursor = 0; colCursor < multData.colsM2; colCursor++) {
+				printf("%f ", multData.m3[rowCursor][colCursor]);
+			}
+			printf("\n");
+		}
+		pthread_mutex_unlock(&multData.mutex);
+	}
 
 
+	/* Fermeture des threads */
+	printf("Closing threads\n");
+	for (rowCursor = 0; rowCursor < multData.maxRows*multData.maxCols; rowCursor++) {
+			pthread_join(multTh[rowCursor], NULL);
+	}
+	printf("Threads closed\n");
+
+	/*=> detruire multData.cond ... */
+	pthread_cond_destroy(&multData.cond);
+	/*=> detruire multData.mutex ... */
+	pthread_mutex_destroy(&multData.mutex);
+	/*** Libération de la mémoire ***/
+	munmap(mmappedFile, statbuf.st_size);
+	free(multData.m1);
+	free(multData.m2);
+	free(multData.m3);
+	free(multData.pendingMult);
+	free(thData);
+	free(multTh);
 	err = close(fd);
 	if (err == -1) {
 		perror("close");
 		return 1;
 	}
+
 	return 0;
 }
