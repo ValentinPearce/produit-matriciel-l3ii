@@ -6,27 +6,6 @@ ITERATION 0, RESULT :
 125.000000 151.000000 177.000000 
 194.000000 235.000000 276.000000 
 ITERATION 1, RESULT : 
-45.000000 51.000000 57.000000 
-95.000000 108.000000 121.000000 
-Closing threads
-Closed thread n°0
-Closed thread n°1
-Closed thread n°2
-Closed thread n°3
-Closed thread n°4
-Closed thread n°5
-Closed thread n°6
-Closed thread n°7
-Closed thread n°8
-Threads closed
-Number of processors : 2
-Main thread CPU : 0
-Creating arrays
-ITERATION 0, RESULT : 
-56.000000 67.000000 78.000000 
-125.000000 151.000000 177.000000 
-194.000000 235.000000 276.000000 
-ITERATION 1, RESULT : 
 21.000000 24.000000 27.000000 
 47.000000 54.000000 61.000000 
 Closing threads
